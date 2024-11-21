@@ -27,7 +27,6 @@ def handle_new_chat_member(message):
     """Обрабатывает событие добавления бота в новый чат."""
     for new_member in message.new_chat_members:
         if new_member.id == bot.get_me().id:
-            bot.reply_to(message, f"{message.from_user.id, message.chat.id}")
             add_chat(message)
             user_who_added_bot = message.from_user
             reply, group_name = add_user(
