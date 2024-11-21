@@ -6,6 +6,7 @@ from markups import *
 from callbacks import register_callbacks
 from dotenv import load_dotenv
 import os
+import re
 
 # Инициализация базы данных
 conn = sqlite3.connect('chat_users.db', check_same_thread=False)
@@ -230,16 +231,18 @@ def handle_feedback(message):
     thread_id = message.message_thread_id if message.message_thread_id else None
     user_name = message.from_user.username
     chat_id = message.chat.id
-    args = message.text.split()
+    args = message.text
 
-    if len(args) != 2:
+    # Используем регулярное выражение, чтобы извлечь отзыв
+    match = re.match(r"^/feedback(@\w+)?\s+(.*)$", args)
+    if not match:
         bot.reply_to(message, 
                      "Пожалуйста, напишите ваш отзыв после команды.",
                      message_thread_id=thread_id if thread_id else None,
                      )
         return
 
-    message_text = args[1]
+    message_text = match.group(2)
     target_user_id = 811311997  # ID пользователя, которому будет отправлен отзыв
     feedback_message = f"Отзыв от {user_name} ({user_id}) из чата {chat_id}: \n\n{message_text}"
 
