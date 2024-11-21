@@ -27,16 +27,23 @@ bot = telebot.TeleBot(bot_token)
 def handle_new_chat_member(message):
     """Обрабатывает событие добавления бота в новый чат."""
     for new_member in message.new_chat_members:
-        if new_member.id == bot.get_me().id:
-            add_chat(message)
-            user_who_added_bot = message.from_user
+        if new_member.id == bot.get_me().id:  # Проверяем, что это бот
+            add_chat(message)  # Добавляем чат в базу данных
+            user_who_added_bot = message.from_user  # Пользователь, добавивший бота
             reply, group_name = add_user(
                 user_who_added_bot.id,
                 message.chat.id,
                 user_who_added_bot.username,
-                True,
+                True,  # Указываем, что это администратор
             )
-            bot.reply_to(message, reply + f" Спасибо за добавление меня в беседу, {user_who_added_bot.username}!",)
+            
+            try:
+                bot.reply_to(
+                    message,
+                    reply + f" Спасибо за добавление меня в беседу, {user_who_added_bot.username}!",
+                )
+            except telebot.apihelper.ApiTelegramException as e:
+                print(f"Ошибка отправки сообщения в чат {message.chat.id}: {e}")
             break
 
 
