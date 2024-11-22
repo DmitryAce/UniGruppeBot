@@ -233,32 +233,36 @@ def handle_feedback(message):
     chat_id = message.chat.id
     args = message.text
 
-    # Используем регулярное выражение, чтобы извлечь отзыв
-    match = re.match(r"^/feedback(@\w+)?\s+(.*)$", args)
+    # Регулярное выражение для захвата текста после команды, включая многострочные сообщения
+    match = re.match(r"^/feedback(@\w+)?\s+([\s\S]+)$", args, re.DOTALL)
     if not match:
-        bot.reply_to(message, 
-                     "Пожалуйста, напишите ваш отзыв после команды.",
-                     message_thread_id=thread_id if thread_id else None,
-                     )
+        bot.reply_to(
+            message,
+            "Пожалуйста, напишите ваш отзыв после команды.",
+            message_thread_id=thread_id if thread_id else None,
+        )
         return
 
-    message_text = match.group(2)
+    message_text = match.group(2).strip()  # Убираем лишние пробелы или переносы строк
     target_user_id = 811311997  # ID пользователя, которому будет отправлен отзыв
-    feedback_message = f"Отзыв от {user_name} ({user_id}) из чата {chat_id}: \n\n{message_text}"
+    feedback_message = f"Отзыв от {user_name} ({user_id}) из чата {chat_id}:\n\n{message_text}"
 
     try:
         # Отправляем сообщение в личку указанному пользователю
         bot.send_message(target_user_id, feedback_message)
-        bot.reply_to(message, 
-                     "Спасибо за ваш отзыв! Сообщение отправлено.",
-                     message_thread_id=thread_id if thread_id else None,
-                     )
+        bot.reply_to(
+            message,
+            "Спасибо за ваш отзыв! Сообщение отправлено.",
+            message_thread_id=thread_id if thread_id else None,
+        )
     except Exception as e:
         # Если возникла ошибка, сообщаем об этом пользователю
-        bot.reply_to(message, 
-                     f"Произошла ошибка при отправке сообщения: {str(e)}",
-                     message_thread_id=thread_id if thread_id else None,
-                     )
+        bot.reply_to(
+            message,
+            f"Произошла ошибка при отправке сообщения: {str(e)}",
+            message_thread_id=thread_id if thread_id else None,
+        )
+
 
 
 
