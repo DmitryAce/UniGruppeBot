@@ -19,11 +19,10 @@ def queue_buttons(user_in_queue, queue=True):
     if not queue:
         return None
     if user_in_queue:
-        btn_leave = types.InlineKeyboardButton("Покинуть очередь", callback_data="leave_queue")
-        btn_down_one = types.InlineKeyboardButton("Спуститься на 1 ниже", callback_data="down_one")
-        markup.add(btn_leave, btn_down_one)
-    else:
-        btn_join = types.InlineKeyboardButton("Записаться", callback_data="join_queue")
-        markup.add(btn_join)
+        btn1 = types.InlineKeyboardButton("Записаться", callback_data="join_queue")
+        btn2 = types.InlineKeyboardButton("Покинуть очередь", callback_data="leave_queue")
+        btn3 = types.InlineKeyboardButton("Спуститься на 1 ниже", callback_data="down_one")
+        markup.row(btn1)
+        markup.row(btn2, btn3)
 
     return markup
