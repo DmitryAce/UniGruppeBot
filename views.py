@@ -63,6 +63,9 @@ def init_queue(message, thread_id=None):
     thread_id = message.message_thread_id if message.message_thread_id else thread_id
     cursor = conn.cursor()
     
+    if chat_id > 0:
+        return f"И кто в очереди будет?"
+    
     cursor.execute('SELECT admin FROM users WHERE user_id = ?', (message.from_user.id,))
     admin = cursor.fetchone()
         
@@ -159,7 +162,7 @@ def get_queue(message, thread_id=None, user_id=None):
 
     queue_id = existing_queue[0]
       
-    cursor.execute('''SELECT DISTINCT u.user_name, e.priority, e.position, u.user_id
+    cursor.execute('''SELECT DISTINCT u.user_name, e.position, u.user_id
                       FROM enqueued e 
                       JOIN users u ON e.user_id = u.user_id 
                       WHERE e.queue_id = ? 
@@ -171,19 +174,30 @@ def get_queue(message, thread_id=None, user_id=None):
         cursor.close()
         return "Очередь пуста."
 
-    max_name_length = max(len(user_name) for user_name, _, _, _ in enqueued_users)
+    max_name_length = max(len(user_name) for user_name, _, _ in enqueued_users)
     name_column_width = max(max_name_length + 2, 20)
     
     # Формируем заголовок таблицы
     queue_output = "Очередь:\n"
-    queue_output += f"{'№':<3} | {'Имя пользователя':<{name_column_width}} | {'Приоритет':<10}\n"
-    queue_output += "-" * (3 + 3 + name_column_width + 20) + "\n"
+    queue_output += f"{'№':<3} | {'Имя пользователя':<{name_column_width}}\n"
+    queue_output += "-" * (3 + 3 + name_column_width) + "\n"
 
-    for i, (user_name, priority, position, current_user_id) in enumerate(enqueued_users, start=1):
-        if current_user_id == user_id:
-            queue_output += f"<b>{position:<3} | {user_name:<{name_column_width}} | {priority:<10}</b>\n"
-        else:
-            queue_output += f"{position:<3} | {user_name:<{name_column_width}} | {priority:<10}\n"
+    if chat_id == -1001641522876:
+        # логика для обработки вывода очереди нашей группы с emojis
+        for i, (user_name, position, current_user_id) in enumerate(enqueued_users, start=1):
+            truncated_name = user_name[:15] + "..." if len(user_name) > 15 else user_name
+            if current_user_id == user_id:
+                queue_output += f"<b>{position:<3} | {truncated_name:<{name_column_width}}</b>\n"
+            else:
+                queue_output += f"{position:<3} | {truncated_name:<{name_column_width}}\n"
+    else:
+        for i, (user_name, position, current_user_id) in enumerate(enqueued_users, start=1):
+            truncated_name = user_name[:15] + "..." if len(user_name) > 15 else user_name
+            if current_user_id == user_id:
+                queue_output += f"<b>{position:<3} | {truncated_name:<{name_column_width}}</b>\n"
+            else:
+                queue_output += f"{position:<3} | {truncated_name:<{name_column_width}}\n"
+
 
     conn.commit()
     cursor.close()
@@ -330,6 +344,80 @@ def pop_position(message, thread_id=None, user_id=None, pos=None):
 
     cursor.close()
     return response
+
+
+def insert_position(message, thread_id=None, user_id=None, current_pos=None, new_pos=None):
+    """Команда для перемещения человека в очереди с изменением нумерации"""
+    chat_id = message.chat.id
+    cursor = conn.cursor()
+
+    # Проверка, является ли пользователь администратором
+    cursor.execute('SELECT admin FROM users WHERE user_id = ? AND chat_id = ?', (message.from_user.id, chat_id))
+    admin_check = cursor.fetchone()
+
+    if not admin_check or not admin_check[0]:
+        cursor.close()
+        return "У вас нет прав для выполнения этой команды. Только администраторы могут перемещать позиции."
+
+    if not current_pos or not new_pos:
+        return "Необходимо указать текущую позицию и новую позицию для перемещения."
+
+    # Проверка, что позиции являются целыми числами
+    try:
+        current_pos = int(current_pos)
+        new_pos = int(new_pos)
+    except ValueError:
+        return "Позиции должны быть целыми числами."
+
+    if current_pos == new_pos:
+        return "Позиция перемещения совпадает с текущей позицией."
+
+    # Получаем текущий queue_id
+    if thread_id:
+        cursor.execute('SELECT queue_id FROM queues WHERE chat_id = ? AND thread_id = ?', (chat_id, thread_id))
+    else:
+        cursor.execute('SELECT queue_id FROM queues WHERE chat_id = ? AND thread_id IS NULL', (chat_id,))
+    
+    existing_queue = cursor.fetchone()
+
+    if not existing_queue:
+        cursor.close()
+        return "Очереди нет."
+
+    queue_id = existing_queue[0]
+
+    # Проверяем, существует ли человек на указанной позиции
+    cursor.execute('''SELECT user_id, position FROM enqueued 
+                      WHERE queue_id = ? AND position = ?''', (queue_id, current_pos))
+    user_to_move = cursor.fetchone()
+
+    if not user_to_move:
+        cursor.close()
+        return f"На позиции {current_pos} нет пользователя."
+
+    user_id_to_move, position = user_to_move
+
+    # Сдвигаем позиции в очереди
+    if current_pos < new_pos:
+        # Сдвигаем вверх
+        cursor.execute('''UPDATE enqueued
+                          SET position = position - 1
+                          WHERE queue_id = ? AND position > ? AND position <= ?''',
+                       (queue_id, current_pos, new_pos))
+    else:
+        # Сдвигаем вниз
+        cursor.execute('''UPDATE enqueued
+                          SET position = position + 1
+                          WHERE queue_id = ? AND position >= ? AND position < ?''',
+                       (queue_id, new_pos, current_pos))
+
+    # Устанавливаем новую позицию для перемещаемого пользователя
+    cursor.execute('UPDATE enqueued SET position = ? WHERE queue_id = ? AND user_id = ?',
+                   (new_pos, queue_id, user_id_to_move))
+    conn.commit()
+
+    cursor.close()
+    return f"Пользователь на позиции {current_pos} был перемещён на позицию {new_pos}."
 
 
 def shutdown():

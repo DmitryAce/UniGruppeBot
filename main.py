@@ -7,6 +7,8 @@ from callbacks import register_callbacks
 from dotenv import load_dotenv
 import os
 import re
+import time
+import requests
 
 # Инициализация базы данных
 conn = sqlite3.connect('chat_users.db', check_same_thread=False)
@@ -232,6 +234,36 @@ def pop_command(message):
     )
 
 
+@bot.message_handler(commands=['insert'])
+def insert_command(message):
+    """Обработчик команды insert"""
+    user_id = message.from_user.id
+    thread_id = message.message_thread_id if message.message_thread_id else None
+    args = message.text.split()
+
+    if len(args) != 3:
+        bot.send_message(
+            message.chat.id,
+            "Для использования команды insert необходимо указать позицию текущего человека и новую позицию. Пример: /insert 3 1",
+            parse_mode="html",
+            message_thread_id=thread_id if thread_id else None,
+        )
+        return
+
+    current_pos, new_pos = args[1], args[2]
+    response = insert_position(message, thread_id, user_id, current_pos, new_pos)
+
+    # Обновляем очередь
+    reply = get_queue(message, thread_id, user_id)
+
+    bot.send_message(
+        message.chat.id,
+        response + "\n\n" + reply,
+        parse_mode="html",
+        message_thread_id=thread_id if thread_id else None,
+    )
+
+
 @bot.message_handler(commands=["feedback"])
 def handle_feedback(message):
     user_id = message.from_user.id
@@ -242,10 +274,11 @@ def handle_feedback(message):
 
     # Регулярное выражение для захвата текста после команды, включая многострочные сообщения
     match = re.match(r"^/feedback(@\w+)?\s+([\s\S]+)$", args, re.DOTALL)
+
     if not match:
         bot.reply_to(
             message,
-            "Пожалуйста, напишите ваш отзыв после команды.",
+            "Пожалуйста, напишите ваш отзыв после команды.\nПример: /feedback Текст текст текст",
             message_thread_id=thread_id if thread_id else None,
         )
         return
@@ -276,8 +309,23 @@ def handle_feedback(message):
 
 register_callbacks(bot, conn, handle_queue, add_user)
 
+
+
+def shutdown():
+    print("Shutting down bot...")
+
 try:
-    print("Bot is running...")
-    bot.polling()
+    while True:
+        try:
+            print("Bot is running...")
+            bot.polling(none_stop=True, timeout=10)  # Установите значение timeout
+        except requests.exceptions.ReadTimeout as e:
+            print(f"ReadTimeout occurred: {e}. \nRestarting bot...")
+            time.sleep(5)  # Задержка перед перезапуском
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}. \nRestarting bot...")
+            time.sleep(5)  # Задержка перед перезапуском
+except KeyboardInterrupt:
+    print("\nBot stopped by user.")
 finally:
     shutdown()
