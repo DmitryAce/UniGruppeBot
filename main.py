@@ -152,6 +152,9 @@ def register(message):
 def handle_queue(message, user_id=None):
     if user_id is None:
         user_id = message.from_user.id
+        callbacked = False 
+    else:
+        callbacked = True 
 
     thread_id = message.message_thread_id if message.message_thread_id else None
 
@@ -166,87 +169,71 @@ def handle_queue(message, user_id=None):
 
     queue_data = cursor.fetchone()
 
-    # Если очередь не существует
-    if not queue_data:
-        try:
-            bot.delete_message(chat_id, message.message_id)
-        except Exception:
-            pass  # Игнорируем ошибку удаления
-
-        bot.send_message(
-            chat_id=chat_id,
-            text="Очередь не инициализирована. Используйте команду /initqueue для создания очереди.",
-            parse_mode="html",
-            message_thread_id=thread_id if thread_id else None
-        )
-        cursor.close()
-        return
-
-    # Извлекаем данные об очереди
-    queue_id, bot_message_id = queue_data
-    cursor.execute('SELECT user_id FROM enqueued WHERE user_id = ? AND queue_id = ?', (user_id, queue_id))
-    user_in_queue = cursor.fetchone() is not None
+    if queue_data:
+        queue_id, bot_message_id = queue_data
+        cursor.execute('SELECT user_id FROM enqueued WHERE user_id = ? AND queue_id = ?', (user_id, queue_id))
+        user_in_queue = cursor.fetchone() is not None
+    else:
+        queue_id = bot_message_id = None
+        user_in_queue = False
 
     reply = get_queue(message, thread_id, user_id)
 
     # Удаление сообщения пользователя
     try:
-        bot.delete_message(chat_id, message.message_id)
-    except Exception:
-        pass  # Игнорируем ошибку удаления
+        if not callbacked:
+            bot.delete_message(chat_id, message.message_id)
+    except Exception as e:
+        pass
 
-    # Если сообщение бота уже существует, обновляем его
+    # Если сообщение с очередью уже есть, обновляем его
     if bot_message_id:
-        try:
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=bot_message_id,
-                text=reply,
-                parse_mode="html",
-                reply_markup=queue_buttons(queue_id)
-            )
-        except telebot.apihelper.ApiTelegramException as e:
-            print(f"Ошибка при обновлении сообщения бота: {e}")
-            # Если сообщение не найдено (ошибка 400), удаляем старую запись и отправляем новое сообщение
-            if e.result_json.get('error_code') == 400:  # Код ошибки 400 - Bad Request: message to edit not found
-                print("Сообщение не найдено, отправляем новое.")
-                sent_message = bot.send_message(
-                    chat_id=chat_id,
+        if not callbacked:
+            try:
+                bot.delete_message(chat_id, bot_message_id)
+            except Exception as e:
+                print(f"Ошибка при удалении старого сообщения бота: {e}")
+        else:
+            try:
+                bot.edit_message_text(
                     text=reply,
+                    chat_id=chat_id,
+                    message_id=bot_message_id,
                     parse_mode="html",
                     reply_markup=queue_buttons(queue_id),
-                    message_thread_id=thread_id if thread_id else None
-                )
-                new_bot_message_id = sent_message.message_id
-
-                # Обновление bot_message_id в базе данных
-                cursor.execute(
-                    'UPDATE queues SET bot_message_id = ? WHERE queue_id = ?',
-                    (new_bot_message_id, queue_id)
                 )
                 conn.commit()
-        except Exception as e:
-            print(f"Ошибка при обновлении сообщения бота: {e}")
-    else:
-        # Отправка нового сообщения, если его не было
-        sent_message = bot.send_message(
-            chat_id=chat_id,
-            text=reply,
-            parse_mode="html",
-            reply_markup=queue_buttons(queue_id),
-            message_thread_id=thread_id if thread_id else None
-        )
-        new_bot_message_id = sent_message.message_id
+                cursor.close()
+                return
+            except Exception as e:
+                print(f"Ошибка при обновлении сообщения бота: {e}")
+    
+    # Если сообщения нет, отправляем новое
+    sent_message = bot.send_message(
+        chat_id=chat_id,
+        text=reply,
+        parse_mode="html",
+        reply_markup=queue_buttons(queue_id),
+        message_thread_id=thread_id if thread_id else None
+    )
+    new_bot_message_id = sent_message.message_id
 
-        # Обновление bot_message_id в базе данных
+    # Если у нас есть queue_id, обновляем данные в базе
+    if queue_id:
         cursor.execute(
             'UPDATE queues SET bot_message_id = ? WHERE queue_id = ?',
             (new_bot_message_id, queue_id)
         )
-        conn.commit()
+    else:
+        # Если очереди еще нет, создаем новую запись в таблице
+        cursor.execute(
+            'INSERT INTO queues (chat_id, thread_id, bot_message_id) VALUES (?, ?, ?)',
+            (chat_id, thread_id, new_bot_message_id)
+        )
+        queue_id = cursor.lastrowid  # Получаем ID новой очереди
 
+    conn.commit()
     cursor.close()
-
 
 
 @bot.message_handler(commands=['pop'])
@@ -289,6 +276,7 @@ def pop_command(message):
         if bot_message_id:
             try:
                 # Пытаемся обновить текст сообщения очереди
+                print("POP: ", message.chat.id, " ", bot_message_id)
                 bot.edit_message_text(
                     response + "\n\n" + reply,
                     chat_id=message.chat.id,
@@ -391,6 +379,7 @@ def swap_command(message):
         if bot_message_id:
             try:
                 # Пытаемся изменить старое сообщение
+                print("PWAP: ", message.chat.id, " ", bot_message_id)
                 bot.edit_message_text(
                     response + "\n\n" + reply,
                     chat_id=message.chat.id,
@@ -610,10 +599,10 @@ def polling_loop():
         try:
             bot.polling(none_stop=True, timeout=10)
         except requests.exceptions.ReadTimeout as e:
-            print(f"[{datetime.now()}] ReadTimeout: {e}. Restarting bot...")
+            print(f"[{datetime.now()}] ReadTimeout: {e}. \nRestarting bot...")
             time.sleep(5)
         except Exception as e:
-            print(f"[{datetime.now()}] Unexpected error: {e}. Restarting bot...")
+            print(f"[{datetime.now()}] Unexpected error: {e}. \nRestarting bot...")
             time.sleep(5)
 
 def shutdown():

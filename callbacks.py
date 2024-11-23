@@ -59,7 +59,7 @@ def register_callbacks(bot, conn, handle_queue, add_user):
 
         
         cursor.close()
-        handle_queue(call.message, user_id)
+        handle_queue(call.message, call.from_user.id)
 
     @bot.callback_query_handler(func=lambda call: call.data == "leave_queue")
     def handle_leave_queue(call):
@@ -109,7 +109,7 @@ def register_callbacks(bot, conn, handle_queue, add_user):
         bot.answer_callback_query(call.id, "Вы покинули очередь.")
         
         cursor.close()
-        handle_queue(call.message)
+        handle_queue(call.message, call.from_user.id)
 
 
     @bot.callback_query_handler(func=lambda call: call.data == "down_one")
