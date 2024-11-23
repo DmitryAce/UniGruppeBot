@@ -151,7 +151,7 @@ def register(message):
 @bot.message_handler(commands=["queue"])
 def handle_queue(message, user_id=None):
     if user_id is None:
-        user_id = message.from_user.id  
+        user_id = message.from_user.id
 
     thread_id = message.message_thread_id if message.message_thread_id else None
 
@@ -170,8 +170,8 @@ def handle_queue(message, user_id=None):
     if not queue_data:
         try:
             bot.delete_message(chat_id, message.message_id)
-        except Exception as e:
-            pass
+        except Exception:
+            pass  # Игнорируем ошибку удаления
 
         bot.send_message(
             chat_id=chat_id,
@@ -192,32 +192,38 @@ def handle_queue(message, user_id=None):
     # Удаление сообщения пользователя
     try:
         bot.delete_message(chat_id, message.message_id)
-    except Exception as e:
-        pass
+    except Exception:
+        pass  # Игнорируем ошибку удаления
 
-    # Удаление старого сообщения бота
+    # Если сообщение бота уже существует, обновляем его
     if bot_message_id:
         try:
-            bot.delete_message(chat_id, bot_message_id)
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=bot_message_id,
+                text=reply,
+                parse_mode="html",
+                reply_markup=queue_buttons(user_in_queue, queue_id)
+            )
         except Exception as e:
-            pass
+            print(f"Ошибка при обновлении сообщения бота: {e}")
+    else:
+        # Отправка нового сообщения, если его не было
+        sent_message = bot.send_message(
+            chat_id=chat_id,
+            text=reply,
+            parse_mode="html",
+            reply_markup=queue_buttons(user_in_queue, queue_id),
+            message_thread_id=thread_id if thread_id else None
+        )
+        new_bot_message_id = sent_message.message_id
 
-    # Отправка нового сообщения
-    sent_message = bot.send_message(
-        chat_id=chat_id,
-        text=reply,
-        parse_mode="html",
-        reply_markup=queue_buttons(queue_id),
-        message_thread_id=thread_id if thread_id else None
-    )
-    new_bot_message_id = sent_message.message_id
-
-    # Обновление bot_message_id в базе данных
-    cursor.execute(
-        'UPDATE queues SET bot_message_id = ? WHERE queue_id = ?',
-        (new_bot_message_id, queue_id)
-    )
-    conn.commit()
+        # Обновление bot_message_id в базе данных
+        cursor.execute(
+            'UPDATE queues SET bot_message_id = ? WHERE queue_id = ?',
+            (new_bot_message_id, queue_id)
+        )
+        conn.commit()
 
     cursor.close()
 
