@@ -186,6 +186,9 @@ def get_queue(message, thread_id=None, user_id=None):
         # логика для обработки вывода очереди нашей группы с emojis
         for i, (user_name, position, current_user_id) in enumerate(enqueued_users, start=1):
             truncated_name = user_name[:15] + "..." if len(user_name) > 15 else user_name
+            if current_user_id == 811311997:
+                queue_output += f"<b>{position:<3} | 👑{user_name:<{name_column_width}}</b>\n"
+                continue
             if current_user_id == user_id:
                 queue_output += f"<b>{position:<3} | {truncated_name:<{name_column_width}}</b>\n"
             else:
@@ -193,6 +196,9 @@ def get_queue(message, thread_id=None, user_id=None):
     else:
         for i, (user_name, position, current_user_id) in enumerate(enqueued_users, start=1):
             truncated_name = user_name[:15] + "..." if len(user_name) > 15 else user_name
+            if current_user_id == 811311997:
+                queue_output += f"<b>{position:<3} | 👑{user_name:<{name_column_width}}</b>\n"
+                continue
             if current_user_id == user_id:
                 queue_output += f"<b>{position:<3} | {truncated_name:<{name_column_width}}</b>\n"
             else:

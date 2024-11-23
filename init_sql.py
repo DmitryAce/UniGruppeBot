@@ -23,8 +23,10 @@ def create_tables(conn):
                         queue_id INTEGER PRIMARY KEY AUTOINCREMENT,
                         chat_id INTEGER,
                         thread_id INTEGER,
+                        bot_message_id INTEGER, -- идентификатор сообщения бота
                         FOREIGN KEY (chat_id) REFERENCES chats(chat_id)
                     )''')
+
 
     cursor.execute('''CREATE TABLE IF NOT EXISTS enqueued (
                         queue_id INTEGER,
