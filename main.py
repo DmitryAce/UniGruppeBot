@@ -581,7 +581,7 @@ def moderator_command(message):
     if len(args) != 2:
         bot.send_message(
             message.chat.id,
-            "Для использования команды /moderator укажите тег пользователя. Пример: /moderator @username",
+            "Для использования команды /moderator укажите тег пользователя. Пример: /moderator username",
             parse_mode="html",
             reply_to_message_id=message.message_id,
             message_thread_id=thread_id
