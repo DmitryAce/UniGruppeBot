@@ -189,6 +189,9 @@ def get_queue(message, thread_id=None, user_id=None):
             if current_user_id == 811311997:
                 queue_output += f"<b>{position:<3} | 👑{user_name:<{name_column_width}}</b>\n"
                 continue
+            elif current_user_id == 2035497506:
+                queue_output += f"<b>{position:<3} | 🅰️🅱️🅾️🅱️🅰️</b>\n"
+                continue
             if current_user_id == user_id:
                 queue_output += f"<b>{position:<3} | {truncated_name:<{name_column_width}}</b>\n"
             else:
