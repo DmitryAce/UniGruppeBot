@@ -207,7 +207,7 @@ def handle_queue(message, user_id=None):
         chat_id=chat_id,
         text=reply,
         parse_mode="html",
-        reply_markup=queue_buttons(user_in_queue, queue_id),
+        reply_markup=queue_buttons(queue_id),
         message_thread_id=thread_id if thread_id else None
     )
     new_bot_message_id = sent_message.message_id
@@ -266,6 +266,7 @@ def pop_command(message):
                     response + "\n\n" + reply,
                     chat_id=message.chat.id,
                     message_id=bot_message_id,
+                    reply_markup=queue_buttons(queue_id),
                     parse_mode="html",
                 )
             except Exception as e:
@@ -276,6 +277,7 @@ def pop_command(message):
                     message.chat.id,
                     response + "\n\n" + reply,
                     parse_mode="html",
+                    reply_markup=queue_buttons(queue_id),
                     thread_id=thread_id if thread_id else None,
                 )
                 new_bot_message_id = sent_message.message_id
@@ -292,6 +294,7 @@ def pop_command(message):
                 message.chat.id,
                 response + "\n\n" + reply,
                 parse_mode="html",
+                reply_markup=queue_buttons(queue_id),
                 thread_id=thread_id if thread_id else None,
             )
             new_bot_message_id = sent_message.message_id
@@ -365,6 +368,7 @@ def swap_command(message):
                     response + "\n\n" + reply,
                     chat_id=message.chat.id,
                     message_id=bot_message_id,
+                    reply_markup=queue_buttons(queue_id),
                     parse_mode="html",
                 )
             except Exception as e:
@@ -375,6 +379,7 @@ def swap_command(message):
                     message.chat.id,
                     response + "\n\n" + reply,
                     parse_mode="html",
+                    reply_markup=queue_buttons(queue_id),
                     thread_id=thread_id if thread_id else None,
                 )
                 new_bot_message_id = sent_message.message_id
@@ -391,6 +396,7 @@ def swap_command(message):
                 message.chat.id,
                 response + "\n\n" + reply,
                 parse_mode="html",
+                reply_markup=queue_buttons(queue_id),
                 thread_id=thread_id if thread_id else None,
             )
             new_bot_message_id = sent_message.message_id
@@ -464,6 +470,7 @@ def insert_command(message):
                     response + "\n\n" + reply,
                     chat_id=message.chat.id,
                     message_id=bot_message_id,
+                    reply_markup=queue_buttons(queue_id),
                     parse_mode="html",
                 )
             except Exception as e:
@@ -474,6 +481,7 @@ def insert_command(message):
                     message.chat.id,
                     response + "\n\n" + reply,
                     parse_mode="html",
+                    reply_markup=queue_buttons(queue_id),
                     thread_id=thread_id if thread_id else None,
                 )
                 new_bot_message_id = sent_message.message_id
@@ -490,6 +498,7 @@ def insert_command(message):
                 message.chat.id,
                 response + "\n\n" + reply,
                 parse_mode="html",
+                reply_markup=queue_buttons(queue_id),
                 thread_id=thread_id if thread_id else None,
             )
             new_bot_message_id = sent_message.message_id

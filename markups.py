@@ -13,7 +13,7 @@ def main_markup():
     return markup
 
 
-def queue_buttons(user_in_queue, queue=True):
+def queue_buttons(queue=True):
     """Создает кнопки для управления очередью в зависимости от состояния пользователя."""
     markup = types.InlineKeyboardMarkup()
     if not queue:
