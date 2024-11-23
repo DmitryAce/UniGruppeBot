@@ -203,7 +203,7 @@ def handle_queue(message, user_id=None):
                 message_id=bot_message_id,
                 text=reply,
                 parse_mode="html",
-                reply_markup=queue_buttons(user_in_queue, queue_id)
+                reply_markup=queue_buttons(queue_id)
             )
         except Exception as e:
             print(f"Ошибка при обновлении сообщения бота: {e}")
@@ -213,7 +213,7 @@ def handle_queue(message, user_id=None):
             chat_id=chat_id,
             text=reply,
             parse_mode="html",
-            reply_markup=queue_buttons(user_in_queue, queue_id),
+            reply_markup=queue_buttons(queue_id),
             message_thread_id=thread_id if thread_id else None
         )
         new_bot_message_id = sent_message.message_id
