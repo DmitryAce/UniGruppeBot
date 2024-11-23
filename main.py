@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import os, re, time, requests, sys
 from datetime import datetime
 import threading
+from telebot.types import LabeledPrice
 
 
 # Инициализация базы данных
@@ -48,8 +49,9 @@ def handle_new_chat_member(message):
             reply, group_name = add_user(
                 user_who_added_bot.id,
                 message.chat.id,
-                user_who_added_bot.username,
+                user_who_added_bot.first_name,
                 True,  # Указываем, что это администратор
+                user_who_added_bot.username,
             )
 
             try:
@@ -113,18 +115,53 @@ def handle_init_queue(message):
 
 @bot.message_handler(commands=["killqueue"])
 def handle_kill_queue(message):
-    """Удаляет очередь и всех пользователей из нее."""
-    thread_id = message.message_thread_id if message.message_thread_id else None
-    response = kill_queue(message, thread_id)
+    try:
+        # Получаем thread_id, если оно есть
+        thread_id = message.message_thread_id if message.message_thread_id else None
+        
+        # Получаем ответ от функции kill_queue
+        response = kill_queue(message, thread_id)
+        
+        # Подключение к базе данных
+        cursor = conn.cursor()
+        
+        # Запрос для получения данных очереди
+        cursor.execute('SELECT queue_id, bot_message_id FROM queues WHERE chat_id = ?', (message.chat.id,))
+        queue_data = cursor.fetchone()
 
-    if thread_id:
-        bot.send_message(
-            message.chat.id,
-            response,
-            message_thread_id=thread_id,
-        )
-    else:
-        bot.send_message(message.chat.id, response)
+        # Если очередь существует
+        if queue_data:
+            queue_id, bot_message_id = queue_data
+            # Проверка, есть ли пользователь в очереди
+            cursor.execute('SELECT user_id FROM enqueued WHERE user_id = ? AND queue_id = ?', (message.from_user.id, queue_id))
+            user_in_queue = cursor.fetchone() is not None
+        else:
+            queue_id = bot_message_id = None
+            user_in_queue = False
+
+        # Отправка сообщения пользователю
+        if thread_id:
+            bot.send_message(
+                message.chat.id,
+                response,
+                message_thread_id=thread_id,
+            )
+        else:
+            bot.send_message(message.chat.id, response)
+
+    except sqlite3.DatabaseError as e:
+        # Обработка ошибок базы данных
+        bot.send_message(message.chat.id, f"Ошибка при взаимодействии с базой данных: {e}")
+        print(f"Database error: {e}")
+    
+    except Exception as e:
+        # Обработка любых других ошибок
+        bot.send_message(message.chat.id, f"Произошла ошибка: {e}")
+        print(f"Unexpected error: {e}")
+    
+    finally:
+        # Закрытие курсора независимо от того, была ли ошибка или нет
+        cursor.close()
 
 
 @bot.message_handler(commands=["registerme"])
@@ -135,8 +172,9 @@ def register(message):
     reply, group_name = add_user(
         user.id,
         message.chat.id,
-        user.username,
+        user.first_name,
         False,
+        user.username,
     )
     if thread_id:
         bot.send_message(
@@ -179,6 +217,17 @@ def handle_queue(message, user_id=None):
 
     reply = get_queue(message, thread_id, user_id)
 
+    if reply.startswith("Очереди еще нет, п"):
+        sent_message = bot.send_message(
+            chat_id=chat_id,
+            text=reply,
+            parse_mode="html",
+            message_thread_id=thread_id if thread_id else None
+        )
+        conn.commit()
+        cursor.close()
+        return
+    
     # Удаление сообщения пользователя
     try:
         if not callbacked:
@@ -276,7 +325,6 @@ def pop_command(message):
         if bot_message_id:
             try:
                 # Пытаемся обновить текст сообщения очереди
-                print("POP: ", message.chat.id, " ", bot_message_id)
                 bot.edit_message_text(
                     response + "\n\n" + reply,
                     chat_id=message.chat.id,
@@ -379,7 +427,6 @@ def swap_command(message):
         if bot_message_id:
             try:
                 # Пытаемся изменить старое сообщение
-                print("PWAP: ", message.chat.id, " ", bot_message_id)
                 bot.edit_message_text(
                     response + "\n\n" + reply,
                     chat_id=message.chat.id,
@@ -439,7 +486,6 @@ def swap_command(message):
         print(f"Ошибка при удалении сообщения пользователя: {e}")
 
     cursor.close()
-
 
 
 @bot.message_handler(commands=['insert'])
@@ -543,6 +589,34 @@ def insert_command(message):
     cursor.close()
 
 
+@bot.message_handler(commands=['moderator'])
+def moderator_command(message):
+    """Обработчик команды /moderator."""
+    thread_id = message.message_thread_id if message.message_thread_id else None
+    args = message.text.split(maxsplit=1)
+
+    if len(args) != 2:
+        bot.send_message(
+            message.chat.id,
+            "Для использования команды /moderator укажите тег пользователя. Пример: /moderator @username",
+            parse_mode="html",
+            reply_to_message_id=message.message_id,
+            message_thread_id=thread_id
+        )
+        return
+
+    user_tag = args[1].strip()
+
+    # Вызываем функцию логики и отправляем результат пользователю
+    response = toggle_moderator_status(message, conn, message.chat.id, user_tag)
+    bot.send_message(
+        message.chat.id,
+        response,
+        parse_mode="html",
+        reply_to_message_id=message.message_id,
+        message_thread_id=thread_id
+    )
+
 
 @bot.message_handler(commands=["feedback"])
 def handle_feedback(message):
@@ -587,6 +661,7 @@ def handle_feedback(message):
 
 
 
+
 register_callbacks(bot, conn, handle_queue, add_user)
 
 
@@ -604,6 +679,9 @@ def polling_loop():
         except Exception as e:
             print(f"[{datetime.now()}] Unexpected error: {e}. \nRestarting bot...")
             time.sleep(5)
+        finally:
+            if not running:
+                break
 
 def shutdown():
     """Корректное завершение работы."""
@@ -616,7 +694,7 @@ def shutdown():
 # Основной блок программы
 try:
     print("Starting the bot...")
-    polling_thread = threading.Thread(target=polling_loop)
+    polling_thread = threading.Thread(target=polling_loop, daemon=True)  # Поток-демон
     polling_thread.start()  # Запуск polling в отдельном потоке
 
     while True:
@@ -627,7 +705,5 @@ except KeyboardInterrupt:
     shutdown()  # Завершение работы
 
 finally:
-    if polling_thread.is_alive():
-        polling_thread.join()  # Дожидаемся завершения потока
     print("Exiting program...")
     sys.exit(0)  # Завершаем программу

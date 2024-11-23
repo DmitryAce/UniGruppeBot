@@ -13,7 +13,9 @@ def create_tables(conn):
                         user_id INTEGER,
                         chat_id INTEGER,
                         user_name TEXT,
-                        admin BOOLEAN,
+                        user_tag TEXT,
+                        admin BOOLEAN DEFAULT 0,
+                        moderator BOOLEAN DEFAULT 0,
                         status TEXT,
                         PRIMARY KEY (user_id, chat_id),
                         FOREIGN KEY (chat_id) REFERENCES chats(chat_id)

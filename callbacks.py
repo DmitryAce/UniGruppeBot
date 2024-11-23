@@ -31,7 +31,7 @@ def register_callbacks(bot, conn, handle_queue, add_user):
 
         if not user_exists:
             user = call.from_user
-            add_user(user.id, chat_id, user.username, False)
+            add_user(user.id, chat_id, user.first_name, False, user.username,)
 
         cursor.execute("SELECT user_id FROM enqueued WHERE user_id = ? AND queue_id = ?", (user_id, queue_id))
         in_queue = cursor.fetchone()
@@ -111,7 +111,6 @@ def register_callbacks(bot, conn, handle_queue, add_user):
         cursor.close()
         handle_queue(call.message, call.from_user.id)
 
-
     @bot.callback_query_handler(func=lambda call: call.data == "down_one")
     def handle_move_down(call):
         user_id = call.from_user.id
@@ -172,8 +171,97 @@ def register_callbacks(bot, conn, handle_queue, add_user):
         cursor.close()
         handle_queue(call.message, call.from_user.id)
 
+    @bot.callback_query_handler(func=lambda call: call.data == "passed_queue")
+    def handle_passed(call):
+        """Обработчик для кнопки 'Прошел', который забирает самого первого человека из очереди, только если пользователь администратор."""
+        user_id = call.from_user.id
+        chat_id = call.message.chat.id
+        thread_id = call.message.message_thread_id if call.message.message_thread_id else None
+        cursor = conn.cursor()
 
+        # Проверка, является ли пользователь администратором или модератором
+        cursor.execute(
+            'SELECT admin, moderator FROM users WHERE user_id = ? AND chat_id = ?',
+            (user_id, chat_id)
+        )
+        roles = cursor.fetchone()
 
+        if roles is None or (roles[0] == 0 and roles[1] == 0):
+            bot.answer_callback_query(call.id, "У вас нет прав для выполнения этой команды. Только администраторы могут менять позиции.")
+            conn.commit()
+            cursor.close()
+            return
 
+        # Получаем ID очереди
+        if thread_id:
+            cursor.execute('SELECT queue_id FROM queues WHERE chat_id = ? AND thread_id = ?', (chat_id, thread_id))
+        else:
+            cursor.execute('SELECT queue_id FROM queues WHERE chat_id = ? AND thread_id IS NULL', (chat_id,))
 
+        queue_result = cursor.fetchone()
 
+        if queue_result is None:
+            bot.answer_callback_query(call.id, "Очередь не существует.")
+            conn.commit()
+            cursor.close()
+            return
+
+        queue_id = queue_result[0]
+
+        # Извлекаем самого первого пользователя из очереди
+        cursor.execute('''SELECT enqueued.user_id, users.user_name, enqueued.position 
+                        FROM enqueued 
+                        JOIN users ON enqueued.user_id = users.user_id 
+                        WHERE enqueued.queue_id = ? 
+                        ORDER BY enqueued.position ASC 
+                        LIMIT 1''', (queue_id,))
+
+        first_user = cursor.fetchone()
+
+        if not first_user:
+            bot.answer_callback_query(call.id, "Очередь пуста.")
+            cursor.close()
+            return
+
+        first_user_id, user_name, first_user_position = first_user
+
+        # Удаляем самого первого пользователя из очереди
+        cursor.execute('DELETE FROM enqueued WHERE queue_id = ? AND user_id = ?', (queue_id, first_user_id))
+
+        # Сдвигаем всех остальных пользователей на одну позицию вверх
+        cursor.execute('''UPDATE enqueued 
+                        SET position = position - 1 
+                        WHERE queue_id = ? AND position > ?''', (queue_id, first_user_position))
+
+        conn.commit()
+
+        bot.answer_callback_query(call.id, f"Пользователь {user_name} был удален из очереди.")
+
+        cursor.close()
+
+        # Обновляем очередь
+        handle_queue(call.message, call.from_user.id)
+
+    @bot.callback_query_handler(func=lambda call: call.data == "send_donation")
+    def handle_send_donation(call):
+        chat_id = call.message.chat.id
+
+        # Путь к изображению
+        photo_path = "givegeld.jpg"
+
+        # Текст сообщения
+        reply = (
+            "Поддержите бота, хостить надо все же! 🫶\n"
+            "<code> https://www.donationalerts.com/r/dmitryace </code>"
+        )
+
+        # Отправка фото с текстом
+        with open(photo_path, 'rb') as photo:
+            sent_message = bot.send_photo(
+                chat_id=chat_id,
+                photo=photo,
+                caption=reply,
+                parse_mode="html",
+                message_thread_id=call.message.message_thread_id
+                if call.message.message_thread_id else None
+            )

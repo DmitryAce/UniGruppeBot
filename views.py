@@ -5,6 +5,35 @@ from markups import *
 conn = sqlite3.connect('chat_users.db', check_same_thread=False)
 
 
+def get_admins_and_moderators(chat_id):
+    """
+    Возвращает списки администраторов и модераторов для заданного чата.
+    """
+    cursor = conn.cursor()
+
+    # Получаем список администраторов
+    cursor.execute('SELECT user_tag FROM users WHERE admin = 1 AND chat_id = ?', (chat_id,))
+    q_admins = cursor.fetchall()
+    admins = [f"@{admin_row[0]}" for admin_row in q_admins]
+
+    # Получаем список модераторов
+    cursor.execute('SELECT user_tag FROM users WHERE moderator = 1 AND chat_id = ?', (chat_id,))
+    q_moderators = cursor.fetchall()
+    moderators = [f"@{moderator_row[0]}" for moderator_row in q_moderators]
+
+    cursor.close()
+
+    # Формируем строки для вывода
+    admin_list = "\n".join(admins) if admins else "Нет зарегистрированных администраторов."
+    moderator_list = "\n".join(moderators) if moderators else "Нет зарегистрированных модераторов."
+
+    return admin_list, moderator_list
+
+
+
+
+
+
 def add_chat(message):
     """Добавляет чат в базу данных, если его нет."""
     chat_id = message.chat.id
@@ -24,7 +53,7 @@ def add_chat(message):
     cursor.close()
 
 
-def add_user(user_id, chat_id, user_name, is_admin):
+def add_user(user_id, chat_id, user_name, is_admin, user_tag):
     """Добавляет пользователя в базу данных с возможностью присвоения статуса администратора."""
     cursor = conn.cursor()
 
@@ -40,17 +69,25 @@ def add_user(user_id, chat_id, user_name, is_admin):
     )
     chat = cursor.fetchone()
     group_name = chat[0]
+    
     if not user_exists:
         cursor.execute(
-            "INSERT INTO users (user_id, chat_id, user_name, admin, status) VALUES (?, ?, ?, ?, ?)",
-            (user_id, chat_id, user_name, is_admin, "active"),
+            "INSERT INTO users (user_id, chat_id, user_name, admin, status, user_tag) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, chat_id, user_name, is_admin, "active", user_tag),
         )
         conn.commit()
+        
         if is_admin:   
             reply = f"Добро пожаловать в {group_name}, {user_name}, теперь ты администратор бота в этом чате."
         else:
             reply = f"Добро пожаловать в {group_name}, {user_name}"
     else:
+        # Если пользователь уже существует, обновляем его user_tag
+        cursor.execute(
+            "UPDATE users SET user_tag = ? WHERE user_id = ? AND chat_id = ?",
+            (user_name, user_id, chat_id)
+        )
+        conn.commit()
         reply = f"{user_name} уже зарегистрирован в этом чате."
         
     cursor.close()
@@ -66,17 +103,22 @@ def init_queue(message, thread_id=None):
     if chat_id > 0:
         return f"И кто в очереди будет?"
     
-    cursor.execute('SELECT admin FROM users WHERE user_id = ?', (message.from_user.id,))
-    admin = cursor.fetchone()
-        
-    if admin == None or admin[0] == 0: 
-        cursor.execute('SELECT * FROM users WHERE admin = 1')
-        q_admins = cursor.fetchall()
-        admins = [f"@{admin_row[2]}" for admin_row in q_admins]
-        admin_list = "\n".join(admins) if admins else "Нет зарегистрированных администраторов."
-        cursor.close()
-        return f"У тебя недостаточно прав на такие действия, попроси администратора.\nСписок администраторов:\n{admin_list}"
+    cursor.execute(
+        'SELECT admin, moderator FROM users WHERE user_id = ? AND chat_id = ?', 
+            (message.from_user.id, chat_id)
+        )
+    roles = cursor.fetchone()
 
+    if roles is None or (roles[0] == 0 and roles[1] == 0):
+        admin_list, moderator_list = get_admins_and_moderators(chat_id)
+
+        cursor.close()
+        conn.commit()
+        return (
+            "У тебя недостаточно прав на такие действия, попроси администратора или модератора.\n\n"
+            f"Администратор:\n{admin_list}\n\n"
+            f"Список модераторов:\n{moderator_list}"
+        )
     if thread_id:
         cursor.execute('SELECT queue_id FROM queues WHERE chat_id = ? AND thread_id = ?', (chat_id, thread_id))
     else:
@@ -103,16 +145,24 @@ def kill_queue(message, thread_id=None):
     cursor = conn.cursor()
 
     # Проверка на права администратора
-    cursor.execute('SELECT admin FROM users WHERE user_id = ?', (message.from_user.id,))
-    admin = cursor.fetchone()
+    cursor.execute(
+        'SELECT admin, moderator FROM users WHERE user_id = ? AND chat_id = ?', 
+            (message.from_user.id, chat_id)
+        )
+    roles = cursor.fetchone()
 
-    if admin is None or admin[0] == 0:
-        cursor.execute('SELECT * FROM users WHERE admin = 1')
-        q_admins = cursor.fetchall()
-        admins = [f"@{admin_row[2]}" for admin_row in q_admins]
-        admin_list = "\n".join(admins) if admins else "Нет зарегистрированных администраторов."
+    if roles is None or (roles[0] == 0 and roles[1] == 0):
+        # Получаем список администраторов
+        admin_list, moderator_list = get_admins_and_moderators(chat_id)
+
         cursor.close()
-        return f"У тебя недостаточно прав на такие действия, попроси администратора.\nСписок администраторов:\n{admin_list}"
+        conn.commit()
+        return (
+            "У тебя недостаточно прав на такие действия, попроси администратора или модератора.\n\n"
+            f"Администратор:\n{admin_list}\n\n"
+            f"Список модераторов:\n{moderator_list}"
+        )
+
 
     # Получение ID очереди
     if thread_id:
@@ -132,7 +182,7 @@ def kill_queue(message, thread_id=None):
     cursor.execute('DELETE FROM enqueued WHERE queue_id = ?', (queue_id,))
     # Удаление самой очереди
     cursor.execute('DELETE FROM queues WHERE queue_id = ?', (queue_id,))
-
+    
     conn.commit()
     cursor.close()
 
@@ -152,31 +202,34 @@ def get_queue(message, thread_id=None, user_id=None):
     existing_queue = cursor.fetchone()
 
     if not existing_queue:
-        # Изменённый запрос для получения администраторов текущего чата
-        cursor.execute('SELECT user_name FROM users WHERE admin = 1 AND chat_id = ?', (chat_id,))
-        q_admins = cursor.fetchall()
-        admins = [f"@{admin_row[0]}" for admin_row in q_admins]  # Берём user_name из результата запроса
-        admin_list = "\n".join(admins) if admins else "Нет зарегистрированных администраторов."
+        admin_list, moderator_list = get_admins_and_moderators(chat_id)
         cursor.close()
-        return f"Очереди еще нет, попросите администратора создать очередь.\nСписок администраторов:\n{admin_list}"
+        conn.commit()
+        # Формируем сообщение
+        return (
+            "Очереди еще нет, попросите администратора или модератора создать очередь.\n\n"
+            f"Администратор:\n{admin_list}\n\n"
+            f"Список модераторов:\n{moderator_list}"
+        )
 
     queue_id = existing_queue[0]
-      
-    cursor.execute('''SELECT DISTINCT u.user_name, e.position, u.user_id
-                      FROM enqueued e 
-                      JOIN users u ON e.user_id = u.user_id 
-                      WHERE e.queue_id = ? 
-                      ORDER BY e.position''', (queue_id,))
-    
+        
+    cursor.execute('''SELECT DISTINCT u.user_name, e.position, u.user_id, u.user_tag
+                    FROM enqueued e 
+                    JOIN users u ON e.user_id = u.user_id 
+                    WHERE e.queue_id = ? 
+                    ORDER BY e.position''', (queue_id,))
+
     enqueued_users = cursor.fetchall()
 
     if not enqueued_users:
         cursor.close()
+        conn.commit()
         return "Очередь пуста."
 
-    max_name_length = max(len(user_name) for user_name, _, _ in enqueued_users)
+    max_name_length = max(len(user_name) for user_name, _, _, _ in enqueued_users)
     name_column_width = max(max_name_length + 2, 20)
-    
+
     # Формируем заголовок таблицы
     queue_output = "Очередь:\n"
     queue_output += f"{'№':<3} | {'Имя пользователя':<{name_column_width}}\n"
@@ -184,8 +237,14 @@ def get_queue(message, thread_id=None, user_id=None):
 
     if chat_id == -1001641522876:
         # логика для обработки вывода очереди нашей группы с emojis
-        for i, (user_name, position, current_user_id) in enumerate(enqueued_users, start=1):
+        for i, (user_name, position, current_user_id, user_tag) in enumerate(enqueued_users, start=1):
             truncated_name = user_name[:15] + "..." if len(user_name) > 15 else user_name
+            if position == 1:  # Если пользователь первый в очереди
+                if current_user_id == 811311997:
+                    queue_output += f"<b>{position:<3} | 👑@{user_tag:<{name_column_width}}</b>\n"
+                else:
+                    queue_output += f"<b>{position:<3} | @{user_tag:<{name_column_width}}</b>\n"
+                continue
             if current_user_id == 811311997:
                 queue_output += f"<b>{position:<3} | 👑{user_name:<{name_column_width}}</b>\n"
                 continue
@@ -197,8 +256,14 @@ def get_queue(message, thread_id=None, user_id=None):
             else:
                 queue_output += f"{position:<3} | {truncated_name:<{name_column_width}}\n"
     else:
-        for i, (user_name, position, current_user_id) in enumerate(enqueued_users, start=1):
+        for i, (user_name, position, current_user_id, user_tag) in enumerate(enqueued_users, start=1):
             truncated_name = user_name[:15] + "..." if len(user_name) > 15 else user_name
+            if position == 1:  # Если пользователь первый в очереди
+                if current_user_id == 811311997:
+                    queue_output += f"<b>{position:<3} | 👑@{user_tag:<{name_column_width}}</b>\n"
+                else:
+                    queue_output += f"<b>{position:<3} | @{user_tag:<{name_column_width}}</b>\n"
+                continue
             if current_user_id == 811311997:
                 queue_output += f"<b>{position:<3} | 👑{user_name:<{name_column_width}}</b>\n"
                 continue
@@ -206,6 +271,7 @@ def get_queue(message, thread_id=None, user_id=None):
                 queue_output += f"<b>{position:<3} | {truncated_name:<{name_column_width}}</b>\n"
             else:
                 queue_output += f"{position:<3} | {truncated_name:<{name_column_width}}\n"
+
 
 
     conn.commit()
@@ -220,10 +286,14 @@ def swap_positions(message, thread_id=None, user_id=None, pos1=None, pos2=None):
     cursor = conn.cursor()
 
     # Проверка, является ли пользователь администратором
-    cursor.execute('SELECT admin FROM users WHERE user_id = ? AND chat_id = ?', (message.from_user.id, chat_id))
-    admin_check = cursor.fetchone()
+    cursor.execute(
+        'SELECT admin, moderator FROM users WHERE user_id = ? AND chat_id = ?', 
+            (message.from_user.id, chat_id)
+        )
+    roles = cursor.fetchone()
 
-    if not admin_check or not admin_check[0]:
+    if roles is None or (roles[0] == 0 and roles[1] == 0):
+        conn.commit()
         cursor.close()
         return "У вас нет прав для выполнения этой команды. Только администраторы могут менять позиции."
 
@@ -239,6 +309,10 @@ def swap_positions(message, thread_id=None, user_id=None, pos1=None, pos2=None):
 
     if pos1 == pos2:
         return "Невозможно обменять одинаковые позиции."
+
+    # Убедиться, что pos1 всегда меньше pos2
+    if pos1 > pos2:
+        pos1, pos2 = pos2, pos1
 
     # Получаем текущий queue_id
     if thread_id:
@@ -297,10 +371,14 @@ def pop_position(message, thread_id=None, user_id=None, pos=None):
     cursor = conn.cursor()
 
     # Проверка, является ли пользователь администратором
-    cursor.execute('SELECT admin FROM users WHERE user_id = ? AND chat_id = ?', (message.from_user.id, chat_id))
-    admin_check = cursor.fetchone()
+    cursor.execute(
+        'SELECT admin, moderator FROM users WHERE user_id = ? AND chat_id = ?', 
+            (message.from_user.id, chat_id)
+        )
+    roles = cursor.fetchone()
 
-    if not admin_check or not admin_check[0]:
+    if roles is None or (roles[0] == 0 and roles[1] == 0):
+        conn.commit()
         cursor.close()
         return "У вас нет прав для выполнения этой команды. Только администраторы могут удалять пользователей из очереди."
 
@@ -361,10 +439,14 @@ def insert_position(message, thread_id=None, user_id=None, current_pos=None, new
     cursor = conn.cursor()
 
     # Проверка, является ли пользователь администратором
-    cursor.execute('SELECT admin FROM users WHERE user_id = ? AND chat_id = ?', (message.from_user.id, chat_id))
-    admin_check = cursor.fetchone()
+    cursor.execute(
+        'SELECT admin, moderator FROM users WHERE user_id = ? AND chat_id = ?', 
+            (message.from_user.id, chat_id)
+        )
+    roles = cursor.fetchone()
 
-    if not admin_check or not admin_check[0]:
+    if roles is None or (roles[0] == 0 and roles[1] == 0):
+        conn.commit()
         cursor.close()
         return "У вас нет прав для выполнения этой команды. Только администраторы могут перемещать позиции."
 
@@ -427,6 +509,38 @@ def insert_position(message, thread_id=None, user_id=None, current_pos=None, new
 
     cursor.close()
     return f"Пользователь на позиции {current_pos} был перемещён на позицию {new_pos}."
+
+
+def toggle_moderator_status(message, conn, chat_id, user_tag):
+    cursor = conn.cursor()
+    # Проверяем наличие пользователя в базе
+    cursor.execute('SELECT admin FROM users WHERE user_id = ? AND chat_id = ?', (message.from_user.id, chat_id))
+    admin_check = cursor.fetchone()
+    
+    if not admin_check or not admin_check[0]:
+        cursor.close()
+        return "У вас нет прав для выполнения этой команды. Только администратор может назначать модераторов."
+    
+    cursor.execute('''
+        SELECT user_id, moderator FROM users
+        WHERE chat_id = ? AND user_tag = ?
+    ''', (chat_id, user_tag))
+    user_data = cursor.fetchone()
+
+    if not user_data:
+        return f"Пользователь @{user_tag} не найден в этом чате. Возможно пользователь не учавствовал в очередях, пусть @{user_tag} пропишет /registerme"
+
+    user_id, current_status = user_data
+    new_status = not current_status  # Переключаем статус
+
+    # Обновляем статус в базе данных
+    cursor.execute('''
+        UPDATE users SET moderator = ? WHERE user_id = ? AND chat_id = ?
+    ''', (new_status, user_id, chat_id))
+    conn.commit()
+
+    status_message = "Теперь модератор!" if new_status else "Больше не модератор!"
+    return f"Пользователь {user_tag}: {status_message}"
 
 
 def shutdown():
