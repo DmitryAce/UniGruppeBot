@@ -64,23 +64,6 @@ def handle_new_chat_member(message):
             break
 
 
-@bot.message_handler(commands=["getinfo"])
-def handle_get_info(message):
-    """Выводит информацию о чате и топике."""
-    thread_id = message.message_thread_id if message.message_thread_id else None
-    reply = f"CHAT:\n{message.chat}\nTHREAD:{message.message_thread_id}\n"
-    reply2 = f"{message.chat}"
-
-    if thread_id:
-        bot.send_message(
-            message.chat.id,
-            reply,
-            message_thread_id=thread_id,
-        )
-    else:
-        bot.send_message(message.chat.id, reply2)
-
-
 @bot.message_handler(commands=["myid"])
 def handle_my_id(message):
     """Выводит ID пользователя."""
@@ -657,6 +640,53 @@ def handle_feedback(message):
             message_thread_id=thread_id if thread_id else None,
         )
 
+
+@bot.message_handler(commands=["help"])
+def handle_help(message):
+    """Выводит список доступных команд с пояснениями."""
+    
+    reply = """
+    Доступные команды:
+
+    /myid - Узнать свой ID пользователя.
+    /initqueue - Создать очередь.
+    /killqueue - Завершить очередь.
+    /queue - Узнать статус очереди.
+    /swap - Поменять людей местами в очереди (можно с пустым местом).
+    /pop - Убрать человека из очереди.
+    /insert - Вставить человека в очередь.
+    
+    Примеры использования:
+    /swap 2 5
+    /pop 3
+    /insert 2 10
+    
+    Команды для модераторов:
+    /initqueue
+    /killqueue
+    /swap
+    /pop
+    /insert
+
+    Команды для администраторов:
+    /moderator - Переключить статус модератора у пользователя.
+
+    Примечания:
+    - Только администраторы могут использовать команду /moderator.
+    - Модераторы могут делать всё тоже самое, что и администратор.
+    """
+
+    # Выведем информацию о пользователе и доступных командах
+    thread_id = message.message_thread_id if message.message_thread_id else None
+
+    if thread_id:
+        bot.send_message(
+            message.chat.id,
+            reply,
+            message_thread_id=thread_id,
+        )
+    else:
+        bot.send_message(message.chat.id, reply)
 
 
 
